@@ -11,10 +11,18 @@ import (
 )
 
 var (
-	client = mackerel.NewClient("XXX")
+	client   = mackerel.NewClient("XXX")
+	cpuItems = []string{
+		"cpu.user.percentage",
+		"cpu.system.percentage",
+		"cpu.iowait.percentage",
+		"cpu.steal.percentage",
+		"cpu.irq.percentage",
+		"cpu.softirq.percentage",
+		"cpu.nice.percentage",
+		"cpu.guest.percentage",
+	}
 )
-
-//const N = -2
 
 type HostParams struct {
 	hostID string
@@ -98,9 +106,7 @@ func (ap *AlertParams) CheckOpenAlerts(strHostID string) {
 		if resAlert.HostID == strHostID {
 			ap.exist = true
 		}
-
-		fmt.Println(resAlert.Type)
-		fmt.Println(resAlert.HostID)
+		fmt.Printf("AlertType: %v\t AlertHostID: %v\n", resAlert.Type, resAlert.HostID)
 	}
 }
 
@@ -126,25 +132,20 @@ func (hmp *HostMetricsParams) FetchMonitorConfigCPUDuration() {
 	}
 }
 
-func jsonMarshal(v []mackerel.MetricValue) []byte {
-	bytesJSON, _ := json.Marshal(v)
-	bytes := []byte(bytesJSON)
-
-	return bytes
-}
-
-func calcTotalCPUPercent(v []CPUValue) float64 {
+func calcTotalCPUPercentPerItem(cv []CPUValue) float64 {
 	var sum float64
-	for i := range v {
-		sum += v[i].Value.(float64)
+	for i := range cv {
+		sum += cv[i].Value.(float64)
 	}
 	return sum
 }
 
 func jsonFormat(m []mackerel.MetricValue, cv *[]CPUValue) {
+	// APIの戻り値をJSONで受ける
 	bytesJSON, _ := json.Marshal(m)
 	bytes := []byte(bytesJSON)
 
+	// JSONから必要なデータだけ構造体定義してパースする
 	if err := json.Unmarshal(bytes, &cv); err != nil {
 		fmt.Println("JSON Unmarshal error:", err)
 	}
@@ -153,6 +154,9 @@ func jsonFormat(m []mackerel.MetricValue, cv *[]CPUValue) {
 func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
 	var metricsCPUValue []CPUValue
 	var beforeTime = (-1 * time.Duration(hmp.duration)) - 1
+	var totalCPUUsage float64
+	cpuItemsValue := [][]mackerel.MetricValue{}
+	cpuSumValuePerItems := []float64{}
 
 	// UnixTime
 	//hmp.toUnixTime = time.Now().Unix()
@@ -162,74 +166,25 @@ func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
 	fromTime := time.Now().Add(beforeTime * time.Minute)
 	hmp.fromUnixTime = fromTime.Unix()
 
+	// Print UnixTime
 	fmt.Printf("%v %v \n ", hmp.fromUnixTime, hmp.toUnixTime)
 
-	cpuUser, _ := client.FetchHostMetricValues(strHostID, "cpu.user.percentage", hmp.fromUnixTime, hmp.toUnixTime)
-	cpuSystem, _ := client.FetchHostMetricValues(strHostID, "cpu.system.percentage", hmp.fromUnixTime, hmp.toUnixTime)
-	cpuIOWait, _ := client.FetchHostMetricValues(strHostID, "cpu.iowait.percentage", hmp.fromUnixTime, hmp.toUnixTime)
-	cpuSteal, _ := client.FetchHostMetricValues(strHostID, "cpu.steal.percentage", hmp.fromUnixTime, hmp.toUnixTime)
-	cpuIrq, _ := client.FetchHostMetricValues(strHostID, "cpu.irq.percentage", hmp.fromUnixTime, hmp.toUnixTime)
-	cpuSoftirq, _ := client.FetchHostMetricValues(strHostID, "cpu.softirq.percentage", hmp.fromUnixTime, hmp.toUnixTime)
-	cpuNice, _ := client.FetchHostMetricValues(strHostID, "cpu.nice.percentage", hmp.fromUnixTime, hmp.toUnixTime)
-	cpuGuest, _ := client.FetchHostMetricValues(strHostID, "cpu.guest.percentage", hmp.fromUnixTime, hmp.toUnixTime)
-
-	// CPU User
-	jsonFormat(cpuUser, &metricsCPUValue)
-	sumCPUUser := calcTotalCPUPercent(metricsCPUValue)
-
-	// CPU User
-	jsonFormat(cpuSystem, &metricsCPUValue)
-	sumCPUSystem := calcTotalCPUPercent(metricsCPUValue)
-
-	// CPU IOWait
-	jsonFormat(cpuIOWait, &metricsCPUValue)
-	sumCPUIOWait := calcTotalCPUPercent(metricsCPUValue)
-
-	// CPU IOWait
-	jsonFormat(cpuSteal, &metricsCPUValue)
-	sumCPUSteal := calcTotalCPUPercent(metricsCPUValue)
-
-	// CPU Irq
-	jsonFormat(cpuIrq, &metricsCPUValue)
-	sumCPUIrq := calcTotalCPUPercent(metricsCPUValue)
-
-	// CPU Softirq
-	jsonFormat(cpuSoftirq, &metricsCPUValue)
-	sumCPUSoftirq := calcTotalCPUPercent(metricsCPUValue)
-
-	// CPU Nice
-	jsonFormat(cpuNice, &metricsCPUValue)
-	sumCPUNice := calcTotalCPUPercent(metricsCPUValue)
-
-	// CPU Guest
-	jsonFormat(cpuGuest, &metricsCPUValue)
-	sumCPUGuest := calcTotalCPUPercent(metricsCPUValue)
-
-	//aveCPUUser = sumCPUUser / float64(len(metricsCPUUserValue))
-
-	fmt.Println("===")
-	fmt.Println(sumCPUUser)
-	fmt.Println(sumCPUSystem)
-	fmt.Println(sumCPUIOWait)
-	fmt.Println(sumCPUSteal)
-	fmt.Println(sumCPUSteal)
-	fmt.Println(sumCPUIrq)
-	fmt.Println(sumCPUSoftirq)
-	fmt.Println(sumCPUNice)
-	fmt.Println(sumCPUGuest)
-
-}
-
-/*
-func FindHosts() {
-	hosts, _ := client.FindHosts(&mackerel.FindHostsParam{
-		Service:  "stg",
-		Roles:    []string{"webapp"},
-		Statuses: []string{mackerel.HostStatusWorking},
-	})
-	fmt.Println("Hostname\tHostID\n-------")
-	for _, resHost := range hosts {
-		fmt.Println(resHost.Name, resHost.ID)
+	// EXAMPLE(user): cpuUser, _ := client.FetchHostMetricValues(strHostID, "cpu.user.percentage", hmp.fromUnixTime, hmp.toUnixTime)
+	for i := range cpuItems {
+		tmp, _ := client.FetchHostMetricValues(strHostID, cpuItems[i], hmp.fromUnixTime, hmp.toUnixTime)
+		cpuItemsValue = append(cpuItemsValue, tmp)
 	}
+
+	// Get CPU Usage per Item
+	for i := range cpuItemsValue {
+		jsonFormat(cpuItemsValue[i], &metricsCPUValue)
+		tmp := calcTotalCPUPercentPerItem(metricsCPUValue)
+		cpuSumValuePerItems = append(cpuSumValuePerItems, tmp)
+	}
+	// Calc total cpu utilization
+	for i := range cpuSumValuePerItems {
+		fmt.Println(cpuSumValuePerItems[i])
+		totalCPUUsage += cpuSumValuePerItems[i]
+	}
+	fmt.Println(totalCPUUsage)
 }
-*/
