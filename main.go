@@ -29,8 +29,9 @@ type HostParams struct {
 }
 
 type AlertParams struct {
-	alert []string
-	exist bool
+	alert    []string
+	exist    bool
+	cpuUsage float64
 }
 
 type HostMetricsParams struct {
@@ -39,6 +40,7 @@ type HostMetricsParams struct {
 	monitorID    string
 	toUnixTime   int64
 	fromUnixTime int64
+	warning      *float64
 }
 
 type Host interface {
@@ -53,8 +55,11 @@ type HostMetrics interface {
 	FetchMetricsValues()
 }
 
-type MonitorHostMetric struct {
+type MonitorHostMetricDuration struct {
 	Duration uint64 `json:"duration,omitempty"`
+}
+type MonitorHostMetricWarning struct {
+	Warning *float64 `json:"warning"`
 }
 
 type CPUValue struct {
@@ -73,8 +78,12 @@ func main() {
 	// Alert一覧にhost自身のIDが存在する場合に処理実行
 	if ap.exist == true {
 		hmp := &HostMetricsParams{}
-		hmp.FetchMonitorConfigCPUDuration()
+		hmp.FetchMonitorConfigCPUDurationWarning()
 		hmp.FetchMetricsValues(hp.hostID)
+		if ap.cpuUsage >= *hmp.warning {
+			fmt.Println("CPU使用率の高いコマンド発行する")
+			fmt.Println(ap.cpuUsage)
+		}
 	} else {
 		fmt.Println("no match alert")
 		os.Exit(0)
@@ -104,14 +113,18 @@ func (ap *AlertParams) CheckOpenAlerts(strHostID string) {
 
 	for _, resAlert := range alerts.Alerts {
 		if resAlert.HostID == strHostID {
+			ap.cpuUsage = resAlert.Value
 			ap.exist = true
+		} else {
+			ap.exist = false
 		}
 		fmt.Printf("AlertType: %v\t AlertHostID: %v\n", resAlert.Type, resAlert.HostID)
 	}
 }
 
-func (hmp *HostMetricsParams) FetchMonitorConfigCPUDuration() {
-	var monitorHostMetric MonitorHostMetric
+func (hmp *HostMetricsParams) FetchMonitorConfigCPUDurationWarning() {
+	var monitorHostMetricDuration MonitorHostMetricDuration
+	var monitorHostMetricWarning MonitorHostMetricWarning
 
 	monitors, err := client.FindMonitors()
 	if err != nil {
@@ -122,11 +135,24 @@ func (hmp *HostMetricsParams) FetchMonitorConfigCPUDuration() {
 	for _, resMonitor := range monitors {
 		if resMonitor.MonitorName() == "CPU %" {
 
-			bytesJSON, _ := json.Marshal(resMonitor)
-			bytes := []byte(bytesJSON)
-			json.Unmarshal(bytes, &monitorHostMetric)
+			// Get Duration value
+			durationBytesJSON, _ := json.Marshal(resMonitor)
+			bytesDuration := []byte(durationBytesJSON)
 
-			hmp.duration = monitorHostMetric.Duration
+			if err := json.Unmarshal(bytesDuration, &monitorHostMetricDuration); err != nil {
+				fmt.Println("JSON Unmarshal error:", err)
+			}
+			hmp.duration = monitorHostMetricDuration.Duration
+
+			// Get Warning value
+			warningBytesJSON, _ := json.Marshal(resMonitor)
+			bytesWarning := []byte(warningBytesJSON)
+
+			if err := json.Unmarshal(bytesWarning, &monitorHostMetricWarning); err != nil {
+				fmt.Println("JSON Unmarshal error:", err)
+			}
+			hmp.warning = monitorHostMetricWarning.Warning
+			fmt.Println(*hmp.warning)
 			//fmt.Printf("%v\n", monitorHostMetric.Duration)
 		}
 	}
@@ -137,7 +163,7 @@ func calcTotalCPUPercentPerItem(cv []CPUValue) float64 {
 	for i := range cv {
 		sum += cv[i].Value.(float64)
 	}
-	return sum
+	return sum / float64(len(cv))
 }
 
 func jsonFormat(m []mackerel.MetricValue, cv *[]CPUValue) {
@@ -167,7 +193,7 @@ func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
 	hmp.fromUnixTime = fromTime.Unix()
 
 	// Print UnixTime
-	fmt.Printf("%v %v \n ", hmp.fromUnixTime, hmp.toUnixTime)
+	fmt.Printf("%v %v\n", hmp.fromUnixTime, hmp.toUnixTime)
 
 	// EXAMPLE(user): cpuUser, _ := client.FetchHostMetricValues(strHostID, "cpu.user.percentage", hmp.fromUnixTime, hmp.toUnixTime)
 	for i := range cpuItems {
@@ -183,8 +209,10 @@ func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
 	}
 	// Calc total cpu utilization
 	for i := range cpuSumValuePerItems {
-		fmt.Println(cpuSumValuePerItems[i])
+		fmt.Printf("%s\t%v\n", cpuItems[i], cpuSumValuePerItems[i])
 		totalCPUUsage += cpuSumValuePerItems[i]
 	}
-	fmt.Println(totalCPUUsage)
+
+	result := fmt.Sprintf("%.1f", totalCPUUsage)
+	fmt.Printf("%v\n", result)
 }
