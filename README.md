@@ -15,7 +15,7 @@
 > $ main -slackurl=<SLACKURL>
 ```
 
-■ 実行結果（ターミナル）
+■ 実行結果（ターミナル） 例なので、閾値以下の結果を出力されています
 ```
 HOSTNAME: 		test-server
 Threshold: 		80.0000
