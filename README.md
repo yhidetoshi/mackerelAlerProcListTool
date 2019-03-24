@@ -15,6 +15,7 @@
 > $ main -slackurl=<SLACKURL>
 ```
 
+■ 実行結果（ターミナル）
 ```
 HOSTNAME: 		test-server
 Threshold: 		80.0000
