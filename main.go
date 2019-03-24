@@ -20,7 +20,7 @@ var (
 	//IDFILE = "/Users/hidetoshi/mkr-id" // Test for Mac
 	//CMD  = "ps -ef | head -n 3" // Test for Mac
 	argSlackURL = flag.String("slackurl", "", "set slack url")
-	client      = mackerel.NewClient("kfrLr")
+	client      = mackerel.NewClient("kfrLrXXXXXXXXXXXXXXXXX")
 	cpuItems    = []string{
 		"cpu.user.percentage",
 		"cpu.system.percentage",
