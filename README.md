@@ -7,7 +7,7 @@
     - https://github.com/mackerelio/mackerel-client-go
   - systemdのtimerで1分に1回実行させる
   - Mackerelのアラート一覧に自インスタンスのmackerel-idがあるかチェック
-  - 自インスタンスのアラートが存在する場合、アラートの種類が `CPU %` で 管理画面の閾値設定値を超えている場合はSlackに以下のコマンド実行結果をPostする
+  - 自インスタンスのアラートが存在する場合、アラートの種類が `CPU %` で 管理画面の閾値設定値を超えている場合はSlackに以下のコマンド実行結果とホスト名、cpu使用率の内訳をPostする
     - `ps aux --sort -%cpu | head -n 5`
 
 ## Usage
