@@ -2,17 +2,26 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
+	"github.com/ashwanthkumar/slack-go-webhook"
 	"github.com/mackerelio/mackerel-client-go"
 	"io/ioutil"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
 
 var (
-	client   = mackerel.NewClient("XXX")
-	cpuItems = []string{
+	CMD    = "ps aux --sort -%cpu | head -n 5"
+	IDFILE = "/var/lib/mackerel-agent/id" // for Ubuntu
+	//IDFILE = "/Users/hidetoshi/mkr-id" // Test for Mac
+	//CMD  = "ps -ef | head -n 3" // Test for Mac
+	argSlackURL = flag.String("slackurl", "", "set slack url")
+	client      = mackerel.NewClient("kfrLr")
+	cpuItems    = []string{
 		"cpu.user.percentage",
 		"cpu.system.percentage",
 		"cpu.iowait.percentage",
@@ -22,25 +31,30 @@ var (
 		"cpu.nice.percentage",
 		"cpu.guest.percentage",
 	}
+	username = "MackerelClientTool"
+	channel  = "alert-test"
 )
 
 type HostParams struct {
-	hostID string
+	hostID   string
+	hostName string
 }
 
 type AlertParams struct {
 	alert    []string
 	exist    bool
 	cpuUsage float64
+	hostName string
 }
 
 type HostMetricsParams struct {
-	cpuUserRate  byte
-	duration     uint64
-	monitorID    string
-	toUnixTime   int64
-	fromUnixTime int64
-	warning      *float64
+	cpuUserRate         byte
+	duration            uint64
+	monitorID           string
+	toUnixTime          int64
+	fromUnixTime        int64
+	warning             *float64
+	cpuSumValuePerItems []float64
 }
 
 type Host interface {
@@ -68,6 +82,7 @@ type CPUValue struct {
 }
 
 func main() {
+	flag.Parse()
 
 	hp := &HostParams{}
 	hp.GetHostID()
@@ -75,31 +90,51 @@ func main() {
 	ap := &AlertParams{}
 	ap.CheckOpenAlerts(hp.hostID)
 
+	hp.FetchHostname()
+
 	// Alert一覧にhost自身のIDが存在する場合に処理実行
 	if ap.exist == true {
 		hmp := &HostMetricsParams{}
 		hmp.FetchMonitorConfigCPUDurationWarning()
 		hmp.FetchMetricsValues(hp.hostID)
 		if ap.cpuUsage >= *hmp.warning {
-			fmt.Println("CPU使用率の高いコマンド発行する")
+			psList, err := exec.Command("sh", "-c", CMD).Output()
+
+			if err != nil {
+				fmt.Println("Error")
+				os.Exit(1)
+			}
+			fmt.Printf("%s", psList)
 			fmt.Println(ap.cpuUsage)
+
+			PostSlack(hp.hostName, hmp.cpuSumValuePerItems[0], hmp.cpuSumValuePerItems[1],
+				hmp.cpuSumValuePerItems[2], hmp.cpuSumValuePerItems[3], string(psList))
+
 		}
 	} else {
 		fmt.Println("no match alert")
 		os.Exit(0)
 	}
-
-	//FetchMetricsValues(hostID)
 }
 
 func (hp *HostParams) GetHostID() {
-	content, err := ioutil.ReadFile("/Users/hidetoshi/mkr-id")
+	content, err := ioutil.ReadFile(IDFILE)
 	if err != nil {
 		fmt.Println("Error")
 		os.Exit(1)
 	}
 	lines := strings.Split(string(content), "\n")
 	hp.hostID = lines[0]
+}
+
+func (hp *HostParams) FetchHostname() {
+	host, err := client.FindHost(hp.hostID)
+	if err != nil {
+		fmt.Println("no hosts")
+		os.Exit(0)
+	}
+	hp.hostName = host.Name
+	fmt.Printf("HOSTNAME: \t\t%s\n", hp.hostName)
 }
 
 func (ap *AlertParams) CheckOpenAlerts(strHostID string) {
@@ -114,6 +149,7 @@ func (ap *AlertParams) CheckOpenAlerts(strHostID string) {
 	for _, resAlert := range alerts.Alerts {
 		if resAlert.HostID == strHostID {
 			ap.cpuUsage = resAlert.Value
+			ap.hostName = resAlert.ID
 			ap.exist = true
 		} else {
 			ap.exist = false
@@ -152,7 +188,7 @@ func (hmp *HostMetricsParams) FetchMonitorConfigCPUDurationWarning() {
 				fmt.Println("JSON Unmarshal error:", err)
 			}
 			hmp.warning = monitorHostMetricWarning.Warning
-			fmt.Println(*hmp.warning)
+			fmt.Printf("Threshold: \t\t%s\n", strconv.FormatFloat(*hmp.warning, 'f', 4, 64))
 			//fmt.Printf("%v\n", monitorHostMetric.Duration)
 		}
 	}
@@ -182,7 +218,6 @@ func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
 	var beforeTime = (-1 * time.Duration(hmp.duration)) - 1
 	var totalCPUUsage float64
 	cpuItemsValue := [][]mackerel.MetricValue{}
-	cpuSumValuePerItems := []float64{}
 
 	// UnixTime
 	//hmp.toUnixTime = time.Now().Unix()
@@ -193,7 +228,7 @@ func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
 	hmp.fromUnixTime = fromTime.Unix()
 
 	// Print UnixTime
-	fmt.Printf("%v %v\n", hmp.fromUnixTime, hmp.toUnixTime)
+	fmt.Printf("UnixTime: \t\t%v to %v\n", hmp.fromUnixTime, hmp.toUnixTime)
 
 	// EXAMPLE(user): cpuUser, _ := client.FetchHostMetricValues(strHostID, "cpu.user.percentage", hmp.fromUnixTime, hmp.toUnixTime)
 	for i := range cpuItems {
@@ -205,14 +240,37 @@ func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
 	for i := range cpuItemsValue {
 		jsonFormat(cpuItemsValue[i], &metricsCPUValue)
 		tmp := calcTotalCPUPercentPerItem(metricsCPUValue)
-		cpuSumValuePerItems = append(cpuSumValuePerItems, tmp)
+		hmp.cpuSumValuePerItems = append(hmp.cpuSumValuePerItems, tmp)
 	}
 	// Calc total cpu utilization
-	for i := range cpuSumValuePerItems {
-		fmt.Printf("%s\t%v\n", cpuItems[i], cpuSumValuePerItems[i])
-		totalCPUUsage += cpuSumValuePerItems[i]
+	for i := range hmp.cpuSumValuePerItems {
+		fmt.Printf("%s:\t%v\n", cpuItems[i], hmp.cpuSumValuePerItems[i])
+		totalCPUUsage += hmp.cpuSumValuePerItems[i]
 	}
 
 	result := fmt.Sprintf("%.1f", totalCPUUsage)
-	fmt.Printf("%v\n", result)
+	fmt.Printf("TotalCPUUsage: \t\t%v\n", result)
+}
+
+func PostSlack(hostName string, cpuUser float64, cpuSystem float64, cpuIOWait float64, cpuSteal float64, psList string) {
+	field0 := slack.Field{Title: "HOSTNAME", Value: hostName}
+	field1 := slack.Field{Title: "cpu.user", Value: strconv.FormatFloat(cpuUser, 'f', 4, 64)}
+	field2 := slack.Field{Title: "cpu.system", Value: strconv.FormatFloat(cpuSystem, 'f', 4, 64)}
+	field3 := slack.Field{Title: "cpu.iowait", Value: strconv.FormatFloat(cpuIOWait, 'f', 4, 64)}
+	field4 := slack.Field{Title: "cpu.steal", Value: strconv.FormatFloat(cpuSteal, 'f', 4, 64)}
+	field5 := slack.Field{Title: "ps list top 5", Value: "```" + psList + "```"}
+
+	attachment := slack.Attachment{}
+	attachment.AddField(field0).AddField(field1).AddField(field2).AddField(field3).AddField(field4).AddField(field5)
+	color := "warning"
+	attachment.Color = &color
+	payload := slack.Payload{
+		Username:    username,
+		Channel:     channel,
+		Attachments: []slack.Attachment{attachment},
+	}
+	err := slack.Send(*argSlackURL, "", payload)
+	if len(err) > 0 {
+		os.Exit(1)
+	}
 }
