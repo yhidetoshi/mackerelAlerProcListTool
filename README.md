@@ -37,3 +37,8 @@ USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
 
 ## Slack通知の結果
 ![Alt Text](https://github.com/yhidetoshi/Pictures/raw/master/Go_study/mackerel-alert-slack.png)
+
+
+## Ansibleでデプロイする方法
+- Go製のツール ( MackerelCPUAlertTool ) をAnsibleでEC2インスタンスにデプロイする
+  - https://yhidetoshi.github.io/2019/04/go%E8%A3%BD%E3%81%AE%E3%83%84%E3%83%BC%E3%83%AB-mackerelcpualerttool-%E3%82%92ansible%E3%81%A7ec2%E3%82%A4%E3%83%B3%E3%82%B9%E3%82%BF%E3%83%B3%E3%82%B9%E3%81%AB%E3%83%87%E3%83%97%E3%83%AD%E3%82%A4%E3%81%99%E3%82%8B/
