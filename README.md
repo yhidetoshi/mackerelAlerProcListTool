@@ -12,6 +12,15 @@
     - `ps aux --sort -%cpu | head -n 5`
 
 ## Usage
+
+- main2.go
+``` 
+> $ main -slackurl=<SLACKURL> -mkrkey=<MACKEREL_API_KEY>
+```
+
+- `MACKEREL_API_KEY` は readonly
+
+- main.go
 ``` 
 > $ main -slackurl=<SLACKURL>
 ```
