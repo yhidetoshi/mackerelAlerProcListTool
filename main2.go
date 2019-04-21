@@ -35,7 +35,6 @@ var (
 type HostParams struct {
 	hostID   string
 	hostName string
-	Host
 }
 
 type AlertParams struct {
