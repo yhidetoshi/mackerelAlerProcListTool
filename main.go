@@ -4,24 +4,23 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/ashwanthkumar/slack-go-webhook"
-	"github.com/mackerelio/mackerel-client-go"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ashwanthkumar/slack-go-webhook"
+	"github.com/mackerelio/mackerel-client-go"
 )
 
 var (
-	CMD    = "ps aux --sort -%cpu | head -n 5"
-	IDFILE = "/var/lib/mackerel-agent/id" // for Ubuntu
-	//IDFILE = "/Users/hidetoshi/mkr-id" // Test for Mac
-	//CMD  = "ps -ef | head -n 3" // Test for Mac
-	argSlackURL = flag.String("slackurl", "", "set slack url")
-	client      = mackerel.NewClient("kfrLrXXXXXXXXXXXXXXXXX")
-	cpuItems    = []string{
+	CMD            = "ps aux --sort -%cpu | head -n 5"
+	IDFILE         = "/var/lib/mackerel-agent/id" // for Ubuntu
+	argSlackURL    = flag.String("slackurl", "", "set slack url")
+	argMackerelKey = flag.String("mkrkey", "", "set mkr key")
+	cpuItems       = []string{
 		"cpu.user.percentage",
 		"cpu.system.percentage",
 		"cpu.iowait.percentage",
@@ -32,7 +31,7 @@ var (
 		"cpu.guest.percentage",
 	}
 	username = "MackerelClientTool"
-	channel  = "alert-test"
+	//channel  = "alert"
 )
 
 type HostParams struct {
@@ -57,17 +56,6 @@ type HostMetricsParams struct {
 	cpuSumValuePerItems []float64
 }
 
-type Host interface {
-	GetHostID()
-}
-
-type Alert interface {
-	CheckOpenAlerts()
-}
-
-type HostMetrics interface {
-	FetchMetricsValues()
-}
 
 type MonitorHostMetricDuration struct {
 	Duration uint64 `json:"duration,omitempty"`
@@ -83,20 +71,21 @@ type CPUValue struct {
 
 func main() {
 	flag.Parse()
+	mkr := mackerel.NewClient(*argMackerelKey)
 
 	hp := &HostParams{}
 	hp.GetHostID()
 
 	ap := &AlertParams{}
-	ap.CheckOpenAlerts(hp.hostID)
+	ap.CheckOpenAlerts(mkr, hp.hostID)
 
-	hp.FetchHostname()
+	hp.FetchHostname(mkr)
 
-	// Alert一覧にhost自身のIDが存在する場合に処理実行
 	if ap.exist == true {
 		hmp := &HostMetricsParams{}
-		hmp.FetchMonitorConfigCPUDurationWarning()
-		hmp.FetchMetricsValues(hp.hostID)
+		hmp.FetchMonitorConfigCPUDurationWarning(mkr)
+		hmp.FetchMetricsValues(mkr, hp.hostID)
+		hmp.FetchMetricsValues(mkr, hp.hostID)
 		if ap.cpuUsage >= *hmp.warning {
 			psList, err := exec.Command("sh", "-c", CMD).Output()
 
@@ -104,8 +93,8 @@ func main() {
 				fmt.Println("Error")
 				os.Exit(1)
 			}
-			fmt.Printf("%s", psList)
-			fmt.Println(ap.cpuUsage)
+			//fmt.Printf("%s", psList)
+			//fmt.Println(ap.cpuUsage)
 
 			PostSlack(hp.hostName, hmp.cpuSumValuePerItems[0], hmp.cpuSumValuePerItems[1],
 				hmp.cpuSumValuePerItems[2], hmp.cpuSumValuePerItems[3], string(psList))
@@ -127,42 +116,40 @@ func (hp *HostParams) GetHostID() {
 	hp.hostID = lines[0]
 }
 
-func (hp *HostParams) FetchHostname() {
-	host, err := client.FindHost(hp.hostID)
+func (hp *HostParams) FetchHostname(mkr *mackerel.Client) {
+	host, err := mkr.FindHost(hp.hostID)
 	if err != nil {
 		fmt.Println("no hosts")
 		os.Exit(0)
 	}
 	hp.hostName = host.Name
-	fmt.Printf("HOSTNAME: \t\t%s\n", hp.hostName)
+	//fmt.Printf("HOSTNAME: \t\t%s\n", hp.hostName)
 }
 
-func (ap *AlertParams) CheckOpenAlerts(strHostID string) {
+func (ap *AlertParams) CheckOpenAlerts(mkr *mackerel.Client, strHostID string) {
 
-	ap.exist = true
-	alerts, err := client.FindAlerts()
+	ap.exist = false
+	alerts, err := mkr.FindAlerts()
 	if err != nil {
-		fmt.Println("no alerts")
+		fmt.Println("err")
 		os.Exit(0)
 	}
 
 	for _, resAlert := range alerts.Alerts {
-		if resAlert.HostID == strHostID {
+                if (resAlert.HostID == strHostID) && (resAlert.Type == "host") {
 			ap.cpuUsage = resAlert.Value
 			ap.hostName = resAlert.ID
 			ap.exist = true
-		} else {
-			ap.exist = false
 		}
-		fmt.Printf("AlertType: %v\t AlertHostID: %v\n", resAlert.Type, resAlert.HostID)
+		//fmt.Printf("AlertType: %v\t AlertHostID: %v\n", resAlert.Type, resAlert.HostID)
 	}
 }
 
-func (hmp *HostMetricsParams) FetchMonitorConfigCPUDurationWarning() {
+func (hmp *HostMetricsParams) FetchMonitorConfigCPUDurationWarning(mkr *mackerel.Client) {
 	var monitorHostMetricDuration MonitorHostMetricDuration
 	var monitorHostMetricWarning MonitorHostMetricWarning
 
-	monitors, err := client.FindMonitors()
+	monitors, err := mkr.FindMonitors()
 	if err != nil {
 		fmt.Println("not get monitor conf")
 		os.Exit(1)
@@ -188,7 +175,7 @@ func (hmp *HostMetricsParams) FetchMonitorConfigCPUDurationWarning() {
 				fmt.Println("JSON Unmarshal error:", err)
 			}
 			hmp.warning = monitorHostMetricWarning.Warning
-			fmt.Printf("Threshold: \t\t%s\n", strconv.FormatFloat(*hmp.warning, 'f', 4, 64))
+			//fmt.Printf("Threshold: \t\t%s\n", strconv.FormatFloat(*hmp.warning, 'f', 4, 64))
 			//fmt.Printf("%v\n", monitorHostMetric.Duration)
 		}
 	}
@@ -213,10 +200,10 @@ func jsonFormat(m []mackerel.MetricValue, cv *[]CPUValue) {
 	}
 }
 
-func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
+func (hmp *HostMetricsParams) FetchMetricsValues(mkr *mackerel.Client, strHostID string) {
 	var metricsCPUValue []CPUValue
 	var beforeTime = (-1 * time.Duration(hmp.duration)) - 1
-	var totalCPUUsage float64
+	//var totalCPUUsage float64
 	cpuItemsValue := [][]mackerel.MetricValue{}
 
 	// UnixTime
@@ -228,11 +215,11 @@ func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
 	hmp.fromUnixTime = fromTime.Unix()
 
 	// Print UnixTime
-	fmt.Printf("UnixTime: \t\t%v to %v\n", hmp.fromUnixTime, hmp.toUnixTime)
+	//fmt.Printf("UnixTime: \t\t%v to %v\n", hmp.fromUnixTime, hmp.toUnixTime)
 
-	// EXAMPLE(user): cpuUser, _ := client.FetchHostMetricValues(strHostID, "cpu.user.percentage", hmp.fromUnixTime, hmp.toUnixTime)
+	// EXAMPLE(user): cpuUser, _ := mkr.FetchHostMetricValues(strHostID, "cpu.user.percentage", hmp.fromUnixTime, hmp.toUnixTime)
 	for i := range cpuItems {
-		tmp, _ := client.FetchHostMetricValues(strHostID, cpuItems[i], hmp.fromUnixTime, hmp.toUnixTime)
+		tmp, _ := mkr.FetchHostMetricValues(strHostID, cpuItems[i], hmp.fromUnixTime, hmp.toUnixTime)
 		cpuItemsValue = append(cpuItemsValue, tmp)
 	}
 
@@ -242,14 +229,6 @@ func (hmp *HostMetricsParams) FetchMetricsValues(strHostID string) {
 		tmp := calcTotalCPUPercentPerItem(metricsCPUValue)
 		hmp.cpuSumValuePerItems = append(hmp.cpuSumValuePerItems, tmp)
 	}
-	// Calc total cpu utilization
-	for i := range hmp.cpuSumValuePerItems {
-		fmt.Printf("%s:\t%v\n", cpuItems[i], hmp.cpuSumValuePerItems[i])
-		totalCPUUsage += hmp.cpuSumValuePerItems[i]
-	}
-
-	result := fmt.Sprintf("%.1f", totalCPUUsage)
-	fmt.Printf("TotalCPUUsage: \t\t%v\n", result)
 }
 
 func PostSlack(hostName string, cpuUser float64, cpuSystem float64, cpuIOWait float64, cpuSteal float64, psList string) {
@@ -266,7 +245,7 @@ func PostSlack(hostName string, cpuUser float64, cpuSystem float64, cpuIOWait fl
 	attachment.Color = &color
 	payload := slack.Payload{
 		Username:    username,
-		Channel:     channel,
+		//Channel:     channel,
 		Attachments: []slack.Attachment{attachment},
 	}
 	err := slack.Send(*argSlackURL, "", payload)
