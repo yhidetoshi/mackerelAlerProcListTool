@@ -13,7 +13,6 @@
 
 ## Usage
 
-- main2.go
 ``` 
 > $ main -slackurl=<SLACKURL> -mkrkey=<MACKEREL_API_KEY>
 ```
