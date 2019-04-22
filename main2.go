@@ -29,7 +29,7 @@ var (
 		"cpu.guest.percentage",
 	}
 	username = "MackerelClientTool"
-	//channel  = "alert-test"
+	//channel  = "alert"
 )
 
 type HostParams struct {
