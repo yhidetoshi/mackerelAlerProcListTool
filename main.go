@@ -16,7 +16,8 @@ import (
 )
 
 var (
-	CMD            = "ps aux --sort -%cpu | head -n 5"
+	CMDCPU            = "ps aux --sort -%cpu | head -n 6"
+	CMDMEM            = "ps aux --sort -%mem | head -n 6"
 	IDFILE         = "/var/lib/mackerel-agent/id" // for Ubuntu
 	argSlackURL    = flag.String("slackurl", "", "set slack url")
 	argMackerelKey = flag.String("mkrkey", "", "set mkr key")
@@ -31,7 +32,6 @@ var (
 		"cpu.guest.percentage",
 	}
 	username = "MackerelClientTool"
-	//channel  = "alert"
 )
 
 type HostParams struct {
@@ -40,19 +40,19 @@ type HostParams struct {
 }
 
 type AlertParams struct {
-	alert    []string
-	exist    bool
-	cpuUsage float64
 	hostName string
+	monitorIDList []string
 }
 
 type HostMetricsParams struct {
 	cpuUserRate         byte
 	duration            uint64
-	monitorID           string
+	cpuMonitorID        string
+	memMonitorID		string
 	toUnixTime          int64
 	fromUnixTime        int64
-	warning             *float64
+	cpuWarning          *float64
+	memWarning			*float64
 	cpuSumValuePerItems []float64
 }
 
@@ -60,7 +60,12 @@ type HostMetricsParams struct {
 type MonitorHostMetricDuration struct {
 	Duration uint64 `json:"duration,omitempty"`
 }
-type MonitorHostMetricWarning struct {
+
+type MonitorHostCpuMetricWarning struct {
+	Warning *float64 `json:"warning"`
+}
+
+type MonitorHostMemMetricWarning struct {
 	Warning *float64 `json:"warning"`
 }
 
@@ -69,43 +74,77 @@ type CPUValue struct {
 	Value interface{} `json:"value"`
 }
 
+
+
 func main() {
 	flag.Parse()
 	mkr := mackerel.NewClient(*argMackerelKey)
 
 	hp := &HostParams{}
 	hp.GetHostID()
-
-	ap := &AlertParams{}
-	ap.CheckOpenAlerts(mkr, hp.hostID)
-
 	hp.FetchHostname(mkr)
 
-	if ap.exist == true {
-		hmp := &HostMetricsParams{}
-		hmp.FetchMonitorConfigCPUDurationWarning(mkr)
+	// 監視ルールのIDを取得
+	hmp := &HostMetricsParams{}
+	hmp.FetchMonitorID(mkr)
+
+
+	// 発生している監視ルールIDを取得
+	ap := &AlertParams{}
+	ap.FetchOpenAlerts(mkr, hp.hostID)
+
+	// CPU MEMのアラートが発生しているか確認( 発生している監視ルールIDにCPUとMemが含まれているか判定 )
+	cpuAlertFlag := CheckMonitorIDContains(ap.monitorIDList, hmp.cpuMonitorID)
+	memAlertFlag := CheckMonitorIDContains(ap.monitorIDList, hmp.memMonitorID)
+
+	// CPUアラートが発生した場合の処理
+	if cpuAlertFlag == true {
+		hmp.FetchMonitorConfigDurationWarning(mkr)
 		hmp.FetchMetricsValues(mkr, hp.hostID)
-		hmp.FetchMetricsValues(mkr, hp.hostID)
-		if ap.cpuUsage >= *hmp.warning {
-			psList, err := exec.Command("sh", "-c", CMD).Output()
-
-			if err != nil {
-				fmt.Println("Error")
-				os.Exit(1)
-			}
-			//fmt.Printf("%s", psList)
-			//fmt.Println(ap.cpuUsage)
-
-			PostSlack(hp.hostName, hmp.cpuSumValuePerItems[0], hmp.cpuSumValuePerItems[1],
-				hmp.cpuSumValuePerItems[2], hmp.cpuSumValuePerItems[3], string(psList))
-
+		psList, err := exec.Command("sh", "-c", CMDCPU).Output()
+		if err != nil {
+			fmt.Println("CPU List Error")
+			os.Exit(1)
 		}
+
+		// CPUのプロセスリストをSlackへPost
+		PostSlackCpu(hp.hostName, hmp.cpuSumValuePerItems[0], hmp.cpuSumValuePerItems[1],
+			hmp.cpuSumValuePerItems[2], hmp.cpuSumValuePerItems[3], string(psList))
+
+	// CPUアラートが発生していない場合の処理
 	} else {
-		fmt.Println("no match alert")
-		os.Exit(0)
+		fmt.Println("no match CPU alert")
+	}
+
+
+	// MEMアラート発生時の処理
+	if memAlertFlag == true {
+		psList, err := exec.Command("sh", "-c", CMDMEM).Output()
+		if err != nil {
+			fmt.Println("MEM List Error")
+			os.Exit(1)
+		}
+
+		// MEMのプロセスリストをSlackへPost
+		PostSlackMem(hp.hostName, string(psList))
+
+	// CPUアラートが発生していない場合の処理
+	} else {
+		fmt.Println("no match MEM alert")
 	}
 }
 
+// Listの中に要素が存在するかの判定
+func CheckMonitorIDContains(ids []string, id string) bool {
+	for _, v := range ids {
+		if id == v {
+			return true
+		}
+	}
+	return false
+}
+
+// hostidを取得
 func (hp *HostParams) GetHostID() {
 	content, err := ioutil.ReadFile(IDFILE)
 	if err != nil {
@@ -116,6 +155,7 @@ func (hp *HostParams) GetHostID() {
 	hp.hostID = lines[0]
 }
 
+// host名を取得
 func (hp *HostParams) FetchHostname(mkr *mackerel.Client) {
 	host, err := mkr.FindHost(hp.hostID)
 	if err != nil {
@@ -123,12 +163,10 @@ func (hp *HostParams) FetchHostname(mkr *mackerel.Client) {
 		os.Exit(0)
 	}
 	hp.hostName = host.Name
-	//fmt.Printf("HOSTNAME: \t\t%s\n", hp.hostName)
 }
 
-func (ap *AlertParams) CheckOpenAlerts(mkr *mackerel.Client, strHostID string) {
-
-	ap.exist = false
+// アラート発生中の情報を取得
+func (ap *AlertParams) FetchOpenAlerts(mkr *mackerel.Client, strHostID string) {
 	alerts, err := mkr.FindAlerts()
 	if err != nil {
 		fmt.Println("err")
@@ -136,18 +174,34 @@ func (ap *AlertParams) CheckOpenAlerts(mkr *mackerel.Client, strHostID string) {
 	}
 
 	for _, resAlert := range alerts.Alerts {
-                if (resAlert.HostID == strHostID) && (resAlert.Type == "host") {
-			ap.cpuUsage = resAlert.Value
-			ap.hostName = resAlert.ID
-			ap.exist = true
-		}
-		//fmt.Printf("AlertType: %v\t AlertHostID: %v\n", resAlert.Type, resAlert.HostID)
+		ap.monitorIDList = append(ap.monitorIDList, resAlert.MonitorID)
 	}
 }
 
-func (hmp *HostMetricsParams) FetchMonitorConfigCPUDurationWarning(mkr *mackerel.Client) {
+// 監視設定idを取得
+func (hmp *HostMetricsParams) FetchMonitorID(mkr *mackerel.Client){
+	monitors, err := mkr.FindMonitors()
+	if err != nil {
+		fmt.Println("not get monitor id")
+		os.Exit(1)
+	}
+
+	for _, resMonitor := range monitors {
+		if resMonitor.MonitorName() == "CPU %" {
+			hmp.cpuMonitorID = resMonitor.MonitorID()
+		}
+		if resMonitor.MonitorName() == "Memory %" {
+			hmp.memMonitorID = resMonitor.MonitorID()
+		}
+	}
+
+}
+
+// 監視設定のwarnningに設定している値を取得
+func (hmp *HostMetricsParams) FetchMonitorConfigDurationWarning(mkr *mackerel.Client) {
 	var monitorHostMetricDuration MonitorHostMetricDuration
-	var monitorHostMetricWarning MonitorHostMetricWarning
+	var monitorHostCpuMetricWarning MonitorHostCpuMetricWarning
+	var monitorHostMemMetricWarning MonitorHostMemMetricWarning
 
 	monitors, err := mkr.FindMonitors()
 	if err != nil {
@@ -156,6 +210,8 @@ func (hmp *HostMetricsParams) FetchMonitorConfigCPUDurationWarning(mkr *mackerel
 	}
 
 	for _, resMonitor := range monitors {
+
+		// CPUのMonitorIDとDuration/Warmomg値を取得
 		if resMonitor.MonitorName() == "CPU %" {
 
 			// Get Duration value
@@ -166,17 +222,30 @@ func (hmp *HostMetricsParams) FetchMonitorConfigCPUDurationWarning(mkr *mackerel
 				fmt.Println("JSON Unmarshal error:", err)
 			}
 			hmp.duration = monitorHostMetricDuration.Duration
+			//hmp.cpuMonitorID = resMonitor.MonitorID()
 
-			// Get Warning value
+			// Get CPU Warning value
 			warningBytesJSON, _ := json.Marshal(resMonitor)
 			bytesWarning := []byte(warningBytesJSON)
 
-			if err := json.Unmarshal(bytesWarning, &monitorHostMetricWarning); err != nil {
+			if err := json.Unmarshal(bytesWarning, &monitorHostCpuMetricWarning); err != nil {
 				fmt.Println("JSON Unmarshal error:", err)
 			}
-			hmp.warning = monitorHostMetricWarning.Warning
-			//fmt.Printf("Threshold: \t\t%s\n", strconv.FormatFloat(*hmp.warning, 'f', 4, 64))
-			//fmt.Printf("%v\n", monitorHostMetric.Duration)
+			hmp.cpuWarning = monitorHostCpuMetricWarning.Warning
+
+		}
+
+		// MemoryのMonitorIDとWarning値を取得
+		if resMonitor.MonitorName() == "Memory %" {
+			hmp.memMonitorID = resMonitor.MonitorID()
+
+			// Get Mem Warning value
+			warningBytesJSON, _ := json.Marshal(resMonitor)
+			bytesWarning := []byte(warningBytesJSON)
+
+			if err := json.Unmarshal(bytesWarning, &monitorHostMemMetricWarning); err != nil {
+				fmt.Println("JSON Unmarshal error:", err)
+			}
 		}
 	}
 }
@@ -201,9 +270,8 @@ func jsonFormat(m []mackerel.MetricValue, cv *[]CPUValue) {
 }
 
 func (hmp *HostMetricsParams) FetchMetricsValues(mkr *mackerel.Client, strHostID string) {
-	var metricsCPUValue []CPUValue
+	var metricsCpuValue []CPUValue
 	var beforeTime = (-1 * time.Duration(hmp.duration)) - 1
-	//var totalCPUUsage float64
 	cpuItemsValue := [][]mackerel.MetricValue{}
 
 	// UnixTime
@@ -225,19 +293,20 @@ func (hmp *HostMetricsParams) FetchMetricsValues(mkr *mackerel.Client, strHostID
 
 	// Get CPU Usage per Item
 	for i := range cpuItemsValue {
-		jsonFormat(cpuItemsValue[i], &metricsCPUValue)
-		tmp := calcTotalCPUPercentPerItem(metricsCPUValue)
+		jsonFormat(cpuItemsValue[i], &metricsCpuValue)
+		tmp := calcTotalCPUPercentPerItem(metricsCpuValue)
 		hmp.cpuSumValuePerItems = append(hmp.cpuSumValuePerItems, tmp)
 	}
 }
 
-func PostSlack(hostName string, cpuUser float64, cpuSystem float64, cpuIOWait float64, cpuSteal float64, psList string) {
+// CPUのプロセスリストをSlackに投稿
+func PostSlackCpu(hostName string, cpuUser float64, cpuSystem float64, cpuIOWait float64, cpuSteal float64, psList string) {
 	field0 := slack.Field{Title: "HOSTNAME", Value: hostName}
 	field1 := slack.Field{Title: "cpu.user", Value: strconv.FormatFloat(cpuUser, 'f', 4, 64)}
 	field2 := slack.Field{Title: "cpu.system", Value: strconv.FormatFloat(cpuSystem, 'f', 4, 64)}
 	field3 := slack.Field{Title: "cpu.iowait", Value: strconv.FormatFloat(cpuIOWait, 'f', 4, 64)}
 	field4 := slack.Field{Title: "cpu.steal", Value: strconv.FormatFloat(cpuSteal, 'f', 4, 64)}
-	field5 := slack.Field{Title: "ps list top 5", Value: "```" + psList + "```"}
+	field5 := slack.Field{Title: "CPU ps list top 5", Value: "```" + psList + "```"}
 
 	attachment := slack.Attachment{}
 	attachment.AddField(field0).AddField(field1).AddField(field2).AddField(field3).AddField(field4).AddField(field5)
@@ -246,6 +315,25 @@ func PostSlack(hostName string, cpuUser float64, cpuSystem float64, cpuIOWait fl
 	payload := slack.Payload{
 		Username:    username,
 		//Channel:     channel,
+		Attachments: []slack.Attachment{attachment},
+	}
+	err := slack.Send(*argSlackURL, "", payload)
+	if len(err) > 0 {
+		os.Exit(1)
+	}
+}
+
+// MemoryのプロセスリストをSlackに投稿
+func PostSlackMem(hostName string, psList string){
+	field0 := slack.Field{Title: "HOSTNAME", Value: hostName}
+	field1 := slack.Field{Title: "Mem ps list top 5", Value: "```" + psList + "```"}
+
+	attachment := slack.Attachment{}
+	attachment.AddField(field0).AddField(field1)
+	color := "warning"
+	attachment.Color = &color
+	payload := slack.Payload{
+		Username:    username,
 		Attachments: []slack.Attachment{attachment},
 	}
 	err := slack.Send(*argSlackURL, "", payload)
