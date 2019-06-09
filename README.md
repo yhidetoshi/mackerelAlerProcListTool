@@ -1,4 +1,4 @@
-# MackerelCPUAlertTool
+# mackerelAlerProcListTool
 
 - 目的
   - MackerelでCPU/MEM使用率のアラートが発生した場合にSlackにCPU/MEM使用率の高いプロセスリストをPostさせる
