@@ -16,8 +16,8 @@ import (
 )
 
 var (
-	CMDCPU            = "ps aux --sort -%cpu | head -n 6"
-	CMDMEM            = "ps aux --sort -%mem | head -n 6"
+	CMDCPU         = "ps aux --sort -%cpu | head -n 6"
+	CMDMEM         = "ps aux --sort -%mem | head -n 6"
 	IDFILE         = "/var/lib/mackerel-agent/id" // for Ubuntu
 	argSlackURL    = flag.String("slackurl", "", "set slack url")
 	argMackerelKey = flag.String("mkrkey", "", "set mkr key")
@@ -40,7 +40,7 @@ type HostParams struct {
 }
 
 type AlertParams struct {
-	hostName string
+	hostName      string
 	monitorIDList []string
 }
 
@@ -48,14 +48,13 @@ type HostMetricsParams struct {
 	cpuUserRate         byte
 	duration            uint64
 	cpuMonitorID        string
-	memMonitorID		string
+	memMonitorID        string
 	toUnixTime          int64
 	fromUnixTime        int64
 	cpuWarning          *float64
-	memWarning			*float64
+	memWarning          *float64
 	cpuSumValuePerItems []float64
 }
-
 
 type MonitorHostMetricDuration struct {
 	Duration uint64 `json:"duration,omitempty"`
@@ -74,8 +73,6 @@ type CPUValue struct {
 	Value interface{} `json:"value"`
 }
 
-
-
 func main() {
 	flag.Parse()
 	mkr := mackerel.NewClient(*argMackerelKey)
@@ -87,7 +84,6 @@ func main() {
 	// 監視ルールのIDを取得
 	hmp := &HostMetricsParams{}
 	hmp.FetchMonitorID(mkr)
-
 
 	// 発生している監視ルールIDを取得
 	ap := &AlertParams{}
@@ -116,21 +112,20 @@ func main() {
 		fmt.Println("no match CPU alert")
 	}
 
-
-	// MEMアラート発生時の処理
+	// Memアラート発生時の処理
 	if memAlertFlag == true {
 		psList, err := exec.Command("sh", "-c", CMDMEM).Output()
 		if err != nil {
-			fmt.Println("MEM List Error")
+			fmt.Println("Mem List Error")
 			os.Exit(1)
 		}
 
-		// MEMのプロセスリストをSlackへPost
+		// MemのプロセスリストをSlackへPost
 		PostSlackMem(hp.hostName, string(psList))
 
-	// CPUアラートが発生していない場合の処理
+	// Memアラートが発生していない場合の処理
 	} else {
-		fmt.Println("no match MEM alert")
+		fmt.Println("no match Mem alert")
 	}
 }
 
@@ -174,12 +169,14 @@ func (ap *AlertParams) FetchOpenAlerts(mkr *mackerel.Client, strHostID string) {
 	}
 
 	for _, resAlert := range alerts.Alerts {
-		ap.monitorIDList = append(ap.monitorIDList, resAlert.MonitorID)
+		if (resAlert.HostID == strHostID) && (resAlert.Type == "host") {
+			ap.monitorIDList = append(ap.monitorIDList, resAlert.MonitorID)
+		}
 	}
 }
 
 // 監視設定idを取得
-func (hmp *HostMetricsParams) FetchMonitorID(mkr *mackerel.Client){
+func (hmp *HostMetricsParams) FetchMonitorID(mkr *mackerel.Client) {
 	monitors, err := mkr.FindMonitors()
 	if err != nil {
 		fmt.Println("not get monitor id")
@@ -313,7 +310,7 @@ func PostSlackCpu(hostName string, cpuUser float64, cpuSystem float64, cpuIOWait
 	color := "warning"
 	attachment.Color = &color
 	payload := slack.Payload{
-		Username:    username,
+		Username: username,
 		//Channel:     channel,
 		Attachments: []slack.Attachment{attachment},
 	}
@@ -324,7 +321,7 @@ func PostSlackCpu(hostName string, cpuUser float64, cpuSystem float64, cpuIOWait
 }
 
 // MemoryのプロセスリストをSlackに投稿
-func PostSlackMem(hostName string, psList string){
+func PostSlackMem(hostName string, psList string) {
 	field0 := slack.Field{Title: "HOSTNAME", Value: hostName}
 	field1 := slack.Field{Title: "Mem ps list top 5", Value: "```" + psList + "```"}
 
