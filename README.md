@@ -17,10 +17,10 @@ Blog: [MackerelのCPU・Memoryアラート発生時にそれぞれの高負荷�
 ## Usage
 
 ``` 
-> $ main -slackurl=<SLACKURL> -mkrkey=<MACKEREL_API_KEY>
+> $ main -slackurl=<SLACKURL>
 ```
 
-- `MACKEREL_API_KEY` は readonly
+- `MACKEREL_API_KEY` は systemdで実行するときに環境変数をセットする
 
 
 ■ 実行結果（ターミナル） 例なので、閾値以下の結果を出力されています
