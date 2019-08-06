@@ -12,6 +12,7 @@ GOXARCH := "386 amd64"
 GOXOUTPUT := "$(PKGDIR)/$(NAME)_{{.OS}}_{{.Arch}}/{{.Dir}}"
 VERSION := $(shell git describe --tags --abbrev=0)
 
+<<<<<<< HEAD
 
 .PHONY: test
 test: lint gofmt
@@ -46,6 +47,8 @@ cover: testdeps
 	goveralls
 
 
+=======
+>>>>>>> f2009a495a1672a5a8eeadaf2de60ebb59bad351
 .PHONY: setup
 ## Install dependencies
 setup:
@@ -71,4 +74,8 @@ package: cross-build
 .PHONY: release
 ## Release package to Github
 release: package
+<<<<<<< HEAD
 	ghr -u yhidetoshi -r GoAWSDeleteAmisLaunchConfigsTool $(VERSION) $(DISTDIR)
+=======
+	ghr -u yhidetoshi -r mackerelCPUAlertTool $(VERSION) $(DISTDIR)
+>>>>>>> f2009a495a1672a5a8eeadaf2de60ebb59bad351
