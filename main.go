@@ -17,9 +17,9 @@ import (
 
 var (
 	//CMDCPU ps command for cpu
-	CMDCPU         = "ps aux --sort -%cpu | head -n 6"
+	CMDCPU = "ps aux --sort -%cpu | head -n 6"
 	//CMDMEM ps command for mem
-	CMDMEM         = "ps aux --sort -%mem | head -n 6"
+	CMDMEM = "ps aux --sort -%mem | head -n 6"
 	// IDFILE id file path
 	IDFILE         = "/var/lib/mackerel-agent/id" // for Ubuntu
 	argSlackURL    = flag.String("slackurl", "", "set slack url")
