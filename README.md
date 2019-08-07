@@ -11,6 +11,7 @@ Blog: [MackerelのCPU・Memoryアラート発生時にそれぞれの高負荷�
     - https://github.com/mackerelio/mackerel-client-go
   - mackerel-agentのidをインスタンス内部で取得します。（今回はUbuntuのパスを指定）他のディストリビューションの場合は修正が必要です。  
   - systemdのtimerで1分に1回実行させる
+  - アラート発生から３分以内は毎分通知する。(アラートが発生し続けていると何度も通知しないようにするため)
   - Mackerelのアラート一覧に自インスタンスのmackerel-idがあるかチェック
   - 自インスタンスのアラートが存在する場合、アラートの種類が `CPU % / Memory &` で 管理画面の閾値設定値を超えている場合はSlackに以下のコマンド実行結果とホスト名、cpu使用率の内訳をPostする
     - `ps aux --sort -%cpu | head -n 6`
